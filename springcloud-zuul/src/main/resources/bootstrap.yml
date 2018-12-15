@@ -1,0 +1,94 @@
+spring:
+  application:
+    name: gateway
+  http:   #强制编码
+    encoding:
+      force: true
+      enabled: true
+      charset: UTF-8
+  aop:
+    proxy-target-class: true
+  cloud:
+    config:
+      profile: test
+      discovery:
+        enabled: true
+        service-id: step-config-server
+
+eureka:
+  instance:
+    prefer-ip-address: true
+    instance-id: gateway:${spring.cloud.client.ipAddress}:${server.port}
+  client:
+    service-url:
+          defaultZone: http://127.0.0.1:16003/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+
+server:
+  port: 15001
+  tomcat:
+    uri-encoding: UTF-8
+
+ribbon:
+  okhttp:
+    enabled: true
+  http:
+    client:
+      enabled: false   #最开始使用的okhttp，在做压测时的性能并没有Apache的原生的组件性能好，后面在持续压测看一下
+  eager-load:
+    enabled: true   #启动时预先加载ribbon服务
+  ConnectTimeout: 2000 #连接超时时间不能太长，太长会导致连接一直占用，请求失败时再去重试其他服务
+  ReadTimeout: 9000
+  MaxAutoRetries: 0 # 同一台实例最大重试次数,不包括首次调用
+  MaxAutoRetriesNextServer: 1 #重试负载均衡其他的实例最大重试次数,不包括首次server
+  OkToRetryOnAllOperations: true  # 是否所有操作都重试，POST请求注意多次提交错误,默认false，设定为false的话，只有get请求会重试
+hystrix:
+  metrics:
+    enabled: true  #开启
+    polling-interval-ms: 2000 #轮训间隔时间，默认为2s
+
+#设置单个服务的ribbon超时    
+#whichserviceId: 
+#  ribbon: 
+#    ConnectTimeout: 4000
+#    ReadTimeout: 10000
+#     MaxAutoRetries: 0 # 同一台实例最大重试次数,不包括首次调用
+#     MaxAutoRetriesNextServer: 1 #重试负载均衡其他的实例最大重试次数,不包括首次server
+#     OkToRetryOnAllOperations: true  # 是否所有操作都重试，POST请求注意多次提交错误,默认false，设定为false的话，只有get请求会重试
+
+zuul:  #增加zuul前缀后会导致header中出现Access-Control-Allow-Credentials等属性重复的异常
+  sensitiveHeaders: Authorization   #sensitiveHeaders 过滤客户端上传的header
+  ignored-headers: Access-Control-Allow-Credentials,Access-Control-Allow-Origin,Vary,X-Frame-Options #忽略的header不会传播到下游去，也就是说此处的Authorization不会传播的其它的微服务中去，作用与上面敏感的Header差不多，事实上sensitive-headers会被添加到ignored-headers中
+  semaphore:
+    max-semaphores: 1000    #指的是1秒时间窗口内的事务/查询/请求，semaphore.maxConcurrentRequests是一个绝对值，无时间窗口，相当于亚毫秒级的。当请求达到或超过该设置值后，其余就会被拒绝。默认值是100, zuul使用Hystrix，而Hystrix有隔离策略： THREAD 以及 SEMAPHORE ，默认是 SEMAPHORE ，默认大小是100。请求的并发线程超过100就会报错。
+  retryable: false #关闭全局重试
+
+  host:
+#    connect-timeout-millis: 10000 #配置的path为url则此处超时时间生效
+#    socket-timeout-millis: 60000 #配置的path为url则此处超时时间生效
+    max-total-connections: 600  #适用于ApacheHttpClient，如果是okhttp无效。每个服务的http客户端连接池最大连接，默认是200.
+    max-per-route-connections: 400  #适用于ApacheHttpClient，如果是okhttp无效。每个route可用的最大连接数，默认值是20。
+  routes:
+    rebate: # * 匹配任意字符 /a 可以但/a/b不匹配， **匹配任意字符  /a 和/a/b都可以匹配 ,如果想做正则表达式去拦截路径需额外实现
+      path: /rebate/**
+      retryable: true  
+    blockchain:
+      path: /**
+      retryable: true     
+  ignored-patterns: /info,/health    #忽略路由的uri
+
+#Edgware 官方指定的默认超时为4s，经测试默认超时为2s，因为所有的路由都走hysrix，所有设置的超时时间都会作用到hystrix上，  超时时间=（ribbon.ConnectTimeout + ribbon.ReadTimeout）*（ribbon.MaxAutoRetries + 1）*（ribbon.MaxAutoRetriesNextServer + 1）
+#If Zuul is using service discovery than you need to configure these timeouts via Ribbon properties, ribbon.ReadTimeout and ribbon.SocketTimeout.
+#If you have configured Zuul routes by specifying URLs than you will need to use zuul.host.connect-timeout-millis and zuul.host.socket-timeout-millis.
+
+mybatis:
+  mapperLocations: classpath:mapper/*.xml
+
+management:
+  security:
+    enabled: false
+    
+endpoints:
+  routes:
+    enabled: false  #关闭端点控制刷新路由    
