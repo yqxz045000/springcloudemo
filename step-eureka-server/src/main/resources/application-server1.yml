@@ -1,0 +1,19 @@
+spring:
+    application:
+        name: step-eureka-server
+
+server:
+    port: 16003
+
+eureka:
+    instance:
+      prefer-ip-address: true
+    client:
+        register-with-eureka: true
+        fetch-registry: true
+        serviceUrl:
+            defaultZone: http://172.20.16.114:16004/eureka/
+        eureka-server-total-connections: 1000
+        eureka-server-total-connections-per-host: 200
+    server:
+        enable-self-preservation: false

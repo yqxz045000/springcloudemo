@@ -1,0 +1,23 @@
+spring:
+  application:
+    name: step-config-server
+  profiles:
+    active: native
+  cloud:
+    config:
+      server:
+        native:
+          search-locations: /data/springcloud/configserver/properties
+server:
+  port: 17001
+eureka:
+  instance:
+    prefer-ip-address: true
+    instance-id: configserver:${spring.cloud.client.ipAddress}:${server.port}
+  client:
+    register-with-eureka: true
+    fetch-registry: true
+    serviceUrl:
+      defaultZone: http://eurekaserve2.com:16004/eureka/
+#      defaultZone: http://eurekaserve1.com:16003/eureka/
+#      defaultZone: http://l27.0.0.1:16003/eureka/
