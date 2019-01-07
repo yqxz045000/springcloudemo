@@ -1,0 +1,284 @@
+zuul自身可实现的功能
+实现功能
+      1、查看 zuul 中配置好的路由和过滤器信息
+      2、忽略所有微服务或某些微服务
+      3、忽略所有为服务，只路由指定的微服务
+      4、通过path和url访问到具体的某台机器上
+      5、脱离eureka进行访问，并使之具有负载均衡和隔离的机制等
+      6、转发前是否去掉路由前缀
+      7、为所有路由都增加一个通过的前缀
+      8、忽略某些路径不进行路由
+      9、敏感头的传递（比如Cookie等）全局设置和某个微服务设置
+     10、忽略头
+     11、spring security 在classpath 下会忽略的头
+     12、本地调换和路由的优先级
+     13、配置网关超时
+     14、重写 Location 头
+     15、文件上传处理    
+
+
+zuul的完整配置：
+
+spring:
+  application:
+    name: gateway
+  http:   #强制编码
+    encoding:
+      force: true
+      enabled: true
+      charset: UTF-8
+  aop:
+    proxy-target-class: true
+  cloud:
+    config:
+      profile: test
+      discovery:
+        enabled: true
+        service-id: step-config-server
+eureka:
+  instance:
+    prefer-ip-address: true
+    instance-id: gateway:${spring.cloud.client.ipAddress}:${server.port}
+  client:
+    service-url:
+          defaultZone: http://127.0.0.1:16003/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+server:
+  port: 15001
+  tomcat:
+    uri-encoding: UTF-8
+ribbon:
+  okhttp:
+    enabled: true
+  http:
+    client:
+      enabled: false 
+  eager-load:
+    enabled: true   #启动时预先加载ribbon服务
+  ConnectTimeout: 2000 #连接超时时间不能太长，太长会导致连接一直占用，请求失败时再去重试其他服务
+  ReadTimeout: 9000
+  MaxAutoRetries: 0 # 同一台实例最大重试次数,不包括首次调用
+  MaxAutoRetriesNextServer: 1 #重试负载均衡其他的实例最大重试次数,不包括首次server
+  OkToRetryOnAllOperations: true  # 是否所有操作都重试，POST请求注意多次提交错误,默认false，设定为false的话，只有get请求会重试
+hystrix:
+  metrics:
+    enabled: true  #开启
+    polling-interval-ms: 2000 #轮训间隔时间，默认为2s
+#设置单个服务的ribbon超时   
+#whichserviceId:
+#  ribbon:
+#    ConnectTimeout: 4000
+#    ReadTimeout: 10000
+#     MaxAutoRetries: 0 # 同一台实例最大重试次数,不包括首次调用
+#     MaxAutoRetriesNextServer: 1 #重试负载均衡其他的实例最大重试次数,不包括首次server
+#     OkToRetryOnAllOperations: true  # 是否所有操作都重试，POST请求注意多次提交错误,默认false，设定为false的话，只有get请求会重试
+zuul:  #增加zuul前缀后会导致header中出现Access-Control-Allow-Credentials等属性重复的异常
+  sensitiveHeaders: Authorization   #sensitiveHeaders 过滤客户端上传的header
+  ignored-headers: Access-Control-Allow-Credentials,Access-Control-Allow-Origin,Vary,X-Frame-Options #忽略的header不会传播到下游去，也就是说此处的Authorization不会传播的其它的微服务中去，作用与上面敏感的Header差不多，事实上sensitive-headers会被添加到ignored-headers中
+  semaphore:
+    max-semaphores: 1000    #指的是1秒时间窗口内的事务/查询/请求，semaphore.maxConcurrentRequests是一个绝对值，无时间窗口，相当于亚毫秒级的。当请求达到或超过该设置值后，其余就会被拒绝。默认值是100, zuul使用Hystrix，而Hystrix有隔离策略： THREAD 以及 SEMAPHORE ，默认是 SEMAPHORE ，默认大小是100。请求的并发线程超过100就会报错。
+  retryable: false #关闭全局重试
+  host:
+#    connect-timeout-millis: 10000 #配置的path为url则此处超时时间生效
+#    socket-timeout-millis: 60000 #配置的path为url则此处超时时间生效
+#    max-total-connections: 600  #适用于ApacheHttpClient，如果是okhttp无效。每个服务的http客户端连接池最大连接，默认是200.
+#    max-per-route-connections: 400  #适用于ApacheHttpClient，如果是okhttp无效。每个route可用的最大连接数，默认值是20。
+  routes:
+    rebate: # * 匹配任意字符 /a 可以但/a/b不匹配， **匹配任意字符  /a 和/a/b都可以匹配 ,如果想做正则表达式去拦截路径需额外实现
+      path: /a/**
+      retryable: true 
+    blockchain:
+      path: /**
+      retryable: true    
+  ignored-patterns: /info,/health    #忽略路由的uri
+
+mybatis:
+  mapperLocations: classpath:mapper/*.xml
+management:
+  security:
+    enabled: false
+   
+endpoints:
+  routes:
+    enabled: false  #关闭端点控制刷新路由   
+
+
+1.动态路由是可以实现的，自定义的路由定位器优先级最高，先匹配则先返回
+2.通过正则表达式匹配路径--参考下面
+3.设置不路由到下游服务：
+RequestContext ctx = RequestContext.getCurrentContext();
+ctx.setSendZuulResponse(false); // 默认为true，设置为false则不将请求下发到下游服务,但仍会执行post过滤器，所以需要将所有的post过滤器关闭
+ctx.setResponseStatusCode(200);
+authorizeResp.setData(null);
+ctx.setResponseBody(JSON.toJSONString(authorizeResp));
+ctx.set("postExecuteFlag", false);
+
+
+原因：
+    RibbonRoutingFilter类为ribbon的路由转发类，他的类型为route类型，执行条件是setSendZuulResponse为true（还有其他跟下游服务相关的信息），如下图：
+
+
+
+4.上面提到了RibbonRoutingFilter类，下面在说一下zuul的两个路由类：
+RibbonRoutingFilter和SimpleHostRoutingFilter提供zuul的路由转发服务，
+RibbonRoutingFilter --------- 转发地址从eureka注册的服务实例中选取
+SimpleHostRoutingFilter------    转发地址为配置的url
+RibbonRoutingFilter： 使用eureka服务时会启动该过滤器，参考上面的路由条件，默认顺序是10
+
+可以看到zuul提供了三种请求工具的工厂方法，我这里使用的是okhttp
+
+
+
+SimpleHostRoutingFilter：执行预先设置的url请求，顺序100，执行类型和ribbon的过滤器相反。
+
+
+
+5.设置超时时间，设置超时时间有两种方式：
+#Edgware 官方指定的默认超时为4s，经测试默认超时为2s，因为所有的路由都走hysrix，所有设置的超时时间都会作用到hystrix上，  超时时间=（ribbon.ConnectTimeout + ribbon.ReadTimeout）*（ribbon.MaxAutoRetries + 1）*（ribbon.MaxAutoRetriesNextServer + 1）
+取设置的最小值。
+ 1.全局设置   
+ribbon:
+  okhttp:
+    enabled: true
+  eager-load:
+    enabled: true   #启动时预先加载ribbon服务
+  ConnectTimeout: 2000 #连接超时时间不能太长，太长会导致连接一直占用，请求失败时再去重试其他服务
+  ReadTimeout: 9000
+  MaxAutoRetries: 0 # 同一台实例最大重试次数,不包括首次调用
+  MaxAutoRetriesNextServer: 1 #重试负载均衡其他的实例最大重试次数,不包括首次server
+  OkToRetryOnAllOperations: true  # 是否所有操作都重试，POST请求注意多次提交错误,默认false，设定为false的话，只有get请求会重试
+
+2.针对某个服务设置
+#设置单个服务的ribbon超时   
+#whichserviceId:
+#  ribbon:
+#    ConnectTimeout: 4000
+#    ReadTimeout: 10000
+#     MaxAutoRetries: 0 # 同一台实例最大重试次数,不包括首次调用
+#     MaxAutoRetriesNextServer: 1 #重试负载均衡其他的实例最大重试次数,不包括首次server
+#     OkToRetryOnAllOperations: true  # 是否所有操作都重试，POST请求注意多次提交错误,默认false，设定为false的话，只有get请求会重试
+
+
+
+6.zuul的路由规则：
+？ 匹配单个字符
+*匹配任意字符
+**匹配任意字符
+*和**是有区别的，* 匹配任意字符 /a 可以但/a/b不匹配， **匹配任意字符  /a 和/a/b都可以匹配
+
+正则表达式实现，可参考官方文档的实现：
+https://cloud.spring.io/spring-cloud-static/Edgware.SR5/single/spring-cloud.html#_router_and_filter_zuul
+
+
+7.zuul还提供查看路由的配置和过滤器的配置，增加actuator配置访问/routes 或者/filters端点获取信息，用post方式访问/routes端点时会刷新路由配置，可使用下面的方式关闭：
+
+endpoints:
+  routes:
+    enabled: false  #关闭端点控制刷新路由
+zuul: 
+  ignored-patterns: /info,/health    #忽略路由的uri
+
+
+8.经过zuul后增加的请求头：
+        
+key:user-agent,values:Mozilla/5.0 (Windows NT 6.1; WOW64; rv:56.0) Gecko/20100101 Firefox/56.0
+key:accept,values:*/*                                                    1
+key:accept-language,values:zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3            1
+key:accept-encoding,values:gzip, deflate                                1
+key:content-type,values:application/json                                1          
+key:content-length,values:0                                             1                 
+key:host,values:10.0.41.86:15002                                        1
+key:connection,values:Keep-Alive                                         1
+key:x-forwarded-host,values:127.0.0.1:15001
+key:x-forwarded-proto,values:http
+key:x-forwarded-port,values:15001
+key:x-forwarded-for,values:127.0.0.1
+
+
+标红的为经过网关后增加的请求头，更多是关于网关服务的信息，如网关的地址，端口，协议等信息。
+也可以为zuul忽略某些请求头，如一些敏感的信息不想传到下游服务，设置如下：
+zuul:  #增加zuul前缀后会导致header中出现Access-Control-Allow-Credentials等属性重复的异常
+  sensitiveHeaders: Authorization   #sensitiveHeaders 过滤客户端上传的header
+  ignored-headers: Access-Control-Allow-Credentials,Access-Control-Allow-Origin,Vary,X-Frame-Options #忽略的header不会传播到下游去，也就是说此处的Authorization不会传播的其它的微服务中去，作用与上面敏感的Header差不多，事实上sensitive-headers会被添加到ignored-headers中
+
+
+9.使用okhttp，Edgware版本的zuul默认使用apche httpClient，不支持keppalive，关于okhtpp的优点参考其他博文
+    ribbon:
+  okhttp:
+    enabled: true
+
+增加依赖：
+               <dependency>
+                <groupId>com.squareup.okhttp3</groupId>
+                <artifactId>okhttp</artifactId>
+           </dependency>
+
+疑问：设置okhttp的一些参数，如线程池配置。
+
+
+10.zuul的重试机制，其实是ribbon的重试机制，zuul默认使用了 fegin+ribbon+hystrix 这三个组件，可以看引入zuul依赖后的项目依赖：
+
+负载均衡器
+spring-cloud-starter-ribbon
+spring-cloud-starter-netflix-ribbon
+请求器
+spring-cloud-starter-feign
+spring-cloud-starter-openfeign
+熔断+监控
+spring-cloud-starter-hystrix
+spring-cloud-starter-hystrix-dashboard
+spring-cloud-starter-netflix-hystrix
+spring-cloud-starter-netflix-hystrix-dashboard
+spring-cloud-starter-netflix-turbine
+spring-cloud-starter-netflix-turbine-amqp
+spring-cloud-starter-netflix-turbine-stream
+
+关闭全局重试，只对需要重试的服务进行重试：
+zuul: 
+  retryable: false #关闭全局重试
+  routes:
+    rebate: # * 匹配任意字符 /a 可以但/a/b不匹配， **匹配任意字符  /a 和/a/b都可以匹配 ,如果想做正则表达式去拦截路径需额外实现
+      path: /a/**
+      retryable: true 
+
+
+
+一个低版本的重试源码解读参考文档：https://blog.csdn.net/xiao_jun_0820/article/details/79320352
+
+
+11.zuul的性能压测：
+该请求做读写操作，正常响应在30ms左右
+    
+
+
+12.解决跨域，增加spring的跨域filter：
+
+     /**
+      * 解决跨域
+      * @return
+      */
+     @Bean
+     public CorsFilter corsFilter() {
+           final UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+           final CorsConfiguration config = new CorsConfiguration();
+           config.setAllowCredentials(true); // 允许cookies跨域
+           config.addAllowedOrigin("*");// #允许向该服务器提交请求的URI，*表示全部允许，在SpringMVC中，如果设成*，会自动转成当前请求头中的Origin
+           config.addAllowedHeader("*");// #允许访问的头信息,*表示全部
+           config.setMaxAge(18000L);// 预检请求的缓存时间（秒），即在这个时间段里，对于相同的跨域请求不会再预检了
+           config.addAllowedMethod("OPTIONS");// 允许提交请求的方法，*表示全部允许
+           config.addAllowedMethod("HEAD");
+           config.addAllowedMethod("GET");// 允许Get的请求方法
+           config.addAllowedMethod("PUT");
+           config.addAllowedMethod("POST");
+           config.addAllowedMethod("DELETE");
+           config.addAllowedMethod("PATCH");
+           source.registerCorsConfiguration("/**", config);
+           return new CorsFilter(source);
+     }
+
+
+
+
+
+
