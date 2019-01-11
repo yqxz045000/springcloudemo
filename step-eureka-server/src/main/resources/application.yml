@@ -10,7 +10,7 @@ eureka:
       register-with-eureka: true
       fetch-registry: true
       serviceUrl:
-        defaultZone: http://eurekaserve2.com:16004/eureka/
+        defaultZone: http://127.0.0.1:8761/eureka/
 #        defaultZone: http://127.0.0.1:16003/eureka/
       eureka-server-total-connections: 1000
       eureka-server-total-connections-per-host: 200

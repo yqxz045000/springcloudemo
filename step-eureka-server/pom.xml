@@ -5,7 +5,7 @@
 
 	<groupId>com.caiyi.sport</groupId>
 	<artifactId>step-eureka-server</artifactId>
-	<version>1.2.0-RELEASE</version>
+	<version>RELEASE</version>
 	<packaging>jar</packaging>
 
 	<name>step-eureka-server</name>
@@ -68,6 +68,5 @@
 			</plugin>
 		</plugins>
 	</build>
-
 
 </project>

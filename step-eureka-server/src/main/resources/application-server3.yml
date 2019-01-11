@@ -1,9 +1,8 @@
-# server1 2 3 为eureka集群配置
 spring:
   application:
     name: step-eureka-server
 server:
-  port: 8761
+  port: 8763
 eureka:
   instance:
     prefer-ip-address: true
@@ -16,5 +15,4 @@ eureka:
     eureka-server-total-connections-per-host: 200
   server:
     enable-self-preservation: false
-
-#启动参数   -Xms512m -Xmx512m -XX:PermSize=256M -XX:MaxPermSize=512m --Dspring.profiles.active=server1 &     
+    
