@@ -1,4 +1,6 @@
 # server1 2 3 为eureka集群配置
+#集群测试：client 配置一个注册地址： 发现其余三个都有注册信息
+#client 配置三个注册地址（他会逐个去注册，直到注册成功）： 发现其余三个都有注册信息
 spring:
   application:
     name: step-eureka-server
